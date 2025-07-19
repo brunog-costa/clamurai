@@ -1,0 +1,13 @@
+displayName: clamurai
+type: middleware
+iconPath: .assets/clamurai.png
+
+import: github.com/brunog-costa/clamurai
+
+summary: In-flight malware scan for Traefik
+
+testData:
+  Config:
+    clamdAddress: "localhost:3310"
+    clamdReadTimeout: 3600
+    clamavConnectionTimeout: 90

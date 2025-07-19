@@ -1,0 +1,4 @@
+# github.com/hq0101/go-clamav v0.3.0
+## explicit; go 1.22.0
+github.com/hq0101/go-clamav/pkg/clamav
+github.com/hq0101/go-clamav/pkg/cli
