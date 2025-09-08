@@ -33,9 +33,21 @@ The inspiration from the project comes from tools such as GuardDuty Malware Insp
 
 ## 🧱 Roadmap
 
-* Block/Allow list logic for signatures 
-* Improved support for ZIP/GZIP decompression
-* YARA Integration
+* Implement tests and documentations for the code 
+	* Create Readme file
+	* DrawIO C4 + DA/DDI 
+* Improve detections and clamav customization 
+	* Custom clam signature lib 
+	* Create flag for alert and block mode 
+* Tackle logging and outputs 
+	* Generate an EFK stack in order to monitor the plugin
+	* Create flag for stdout and file logging output 
+	* Check if clamav logs can be displayed as json messing with the config file 
+* Test the package 
+	* Multi-cloud url re-write test logic 
+	* Create pre-signed url infraestructure example 
+	* Create unit tests for pkgs 
+	* Create a simple application using javascript for testing the solution 
 
 ## 🧠 Want to contribute?
 
