@@ -4,7 +4,7 @@ iconPath: .assets/clamurai.png
 
 import: github.com/brunog-costa/clamurai
 
-summary: In-flight malware scan for Traefik
+summary: In-flight malware scan for Traefik featuring ClamAV
 
 testData:
   Config:
