@@ -20,7 +20,7 @@ type InspectorWorker interface {
 	clamHealthCheck(client *clamav.ClamClient) error
 }
 
-// Builds new inspector from config
+// Builds new inspector from config - might return an nil pointer  need to check this out
 func NewInspector(clamAddress string, readTimeOut uint64, connectionTimeout uint64) *Inspector {
 	// Provisions custom logger for inspector
 	log := logger.NewJSONLogger("Inspector")
@@ -31,7 +31,7 @@ func NewInspector(clamAddress string, readTimeOut uint64, connectionTimeout uint
 	err := clamHealthCheck(client)
 	if err != nil {
 		log.ErrorWithFields("Found problems with inspector configuration", logger.Fields("Error", err))
-		panic("Failed to start inspector, exiting")
+		panic("Failed to start inspector, exiting midleware")
 	} else {
 		return &Inspector{
 			client: client,
@@ -70,6 +70,8 @@ func (i *Inspector) InspectBody(body []byte) (bool, error) {
 	var err error
 	var clean bool
 
+	scanStart := time.Now()
+
 	// Check if inner loop is exiting without redundant inspection
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		// Wait for either the result or context cancellation
@@ -95,6 +97,12 @@ func (i *Inspector) InspectBody(body []byte) (bool, error) {
 		} else {
 			clean = false
 		}
+		// log results in an uniform manner
+		i.logger.InfoWithFields("inspection completed", logger.Fields(
+			"scanResult", result.Status,
+			"virusSignature", result.Virus,
+			"scanDuration", time.Since(scanStart).Seconds(),
+		))
 	}
 
 	return clean, nil
