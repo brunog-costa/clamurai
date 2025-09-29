@@ -59,6 +59,9 @@ func validateConfig(config *Config) error {
 	}
 
 	// Check if connection timeout and read timeout are valid values
+	if config.ClamavConnectionTimeout <= 3000 || config.ClamavReadTimeout <= 3000 {
+		return errors.New("invalid timeout configuration detected, please provide more tolerant configurations")
+	}
 	return nil
 }
 
@@ -71,6 +74,7 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 	// Checks input at midleware initialization
 	err := validateConfig(config)
 	if err != nil {
+		logging.ErrorWithFields("Detected bad configurations in clamurai config", logger.Fields("Error", err))
 		panic("Please validate dynamic configurations file and try again")
 	}
 
@@ -111,7 +115,4 @@ func (c *Clamurai) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if clean || c.alertMode {
 		c.next.ServeHTTP(rw, req)
 	}
-
-	// By default block requests
-	return
 }
