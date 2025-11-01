@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 
 	"github.com/brunog-costa/clamurai/internal/inspector"
@@ -67,19 +68,26 @@ func validateConfig(config *Config) error {
 
 // Sets up the middleware plugin for further usage
 func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
+	hostname, _ := os.Hostname()
+
 	// Initialize logger
-	logging := logger.NewJSONLogger(name)
-	logging.InfoWithFields("Initializing clam client", logger.Fields("clamAddress", config.ClamdAddress))
+	logging := logger.NewJSONLogger(logger.Config{
+		Middleware: "clamurai",
+		Output:     io.MultiWriter(),
+		Hostname:   hostname,
+	})
+
+	logging.Info("Initializing clam client", logger.Fields("clamAddress", config.ClamdAddress))
 
 	// Checks input at midleware initialization
 	err := validateConfig(config)
 	if err != nil {
-		logging.ErrorWithFields("Detected bad configurations in clamurai config", logger.Fields("Error", err))
+		logging.Error("Detected bad configurations in clamurai config", logger.Fields("Error", err))
 		panic("Please validate dynamic configurations file and try again")
 	}
 
 	// Initialize inspector
-	inspector := inspector.NewInspector(config.ClamdAddress, config.ClamavConnectionTimeout, config.ClamavReadTimeout)
+	inspector := inspector.New(config.ClamdAddress, config.ClamavConnectionTimeout, config.ClamavReadTimeout)
 
 	// Return configured parameters
 	return &Clamurai{
@@ -94,12 +102,12 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 // Intercepting the requests and processing them before sending to next middleware or upstream
 func (c *Clamurai) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
-	c.logging.Info("Building byte array from request body")
+	c.logging.Info("Building byte array from request body", nil)
 
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		// This will exit if there's an error
-		c.logging.ErrorWithFields("Pre-scan failed", logger.Fields("Error", err))
+		c.logging.Error("Pre-scan failed", logger.Fields("Error", err))
 		http.Error(rw, "Pre-scan failed, could not process body", http.StatusInternalServerError)
 	}
 
@@ -108,7 +116,7 @@ func (c *Clamurai) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	// 2 - if no shasum is found on headers, perform hashsum
 	clean, err := c.inspector.InspectBody(body)
 	if err != nil {
-		c.logging.ErrorWithFields("Inspector failed to verify body with", logger.Fields("Error", err))
+		c.logging.Error("Inspector failed to verify body with", logger.Fields("Error", err))
 	}
 
 	// If its all cool, log the result and fwd the request

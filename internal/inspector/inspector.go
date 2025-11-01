@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"time"
 
 	"github.com/brunog-costa/clamurai/pkg/logger"
@@ -18,19 +20,27 @@ type Inspector struct {
 
 type InspectorWorker interface {
 	clamHealthCheck(client *clamav.ClamClient) error
+	InspectBody(body []byte) (bool, error)
 }
 
 // Builds new inspector from config - might return an nil pointer  need to check this out
-func NewInspector(clamAddress string, readTimeOut uint64, connectionTimeout uint64) *Inspector {
+func New(clamAddress string, readTimeOut uint64, connectionTimeout uint64) *Inspector {
 	// Provisions custom logger for inspector
-	log := logger.NewJSONLogger("Inspector")
+	hostname, _ := os.Hostname()
+
+	// Initialize logger
+	log := logger.NewJSONLogger(logger.Config{
+		Middleware: "inspector",
+		Output:     io.MultiWriter(),
+		Hostname:   hostname,
+	})
 
 	// Creates a client and perform a healthcheck in order to validate if server has capacity
 	client := clamav.NewClamClient("tcp", clamAddress, time.Duration(connectionTimeout)*time.Second, time.Duration(readTimeOut)*time.Second)
 
 	err := clamHealthCheck(client)
 	if err != nil {
-		log.ErrorWithFields("Found problems with inspector configuration", logger.Fields("Error", err))
+		log.Error("Found problems with inspector configuration", logger.Fields("Error", err))
 		panic("Failed to start inspector, exiting midleware")
 	} else {
 		return &Inspector{
@@ -81,9 +91,9 @@ func (i *Inspector) InspectBody(body []byte) (bool, error) {
 		case <-ticker.C:
 			results, err = i.client.Instream(body)
 			if err == nil {
-				i.logger.Info("Body inspection completed")
+				i.logger.Info("Body inspection completed", nil)
 			} else {
-				i.logger.ErrorWithFields("Failed to scan ", logger.Fields("Error", err, "Attempt", attempt))
+				i.logger.Error("Failed to scan ", logger.Fields("Error", err, "Attempt", attempt))
 				attempt++
 				continue
 			}
@@ -98,7 +108,7 @@ func (i *Inspector) InspectBody(body []byte) (bool, error) {
 			clean = false
 		}
 		// log results in an uniform manner
-		i.logger.InfoWithFields("inspection completed", logger.Fields(
+		i.logger.Info("inspection completed", logger.Fields(
 			"scanResult", result.Status,
 			"virusSignature", result.Virus,
 			"scanDuration", time.Since(scanStart).Seconds(),

@@ -2,7 +2,6 @@ package logger
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -47,10 +46,7 @@ func NewJSONLogger(config Config) *JSONLogger {
 		config.Output = os.Stdout
 	}
 
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = config.Middleware
-	}
+	hostname, _ := os.Hostname()
 
 	return &JSONLogger{
 		middleware: config.Middleware,
@@ -82,11 +78,7 @@ func (l *JSONLogger) logWithFields(level, msg string, fields map[string]interfac
 		Fields:     fields,
 	}
 
-	jsonData, err := json.Marshal(entry)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to marshal log: %v\n", err)
-		return
-	}
+	jsonData, _ := json.Marshal(entry)
 
 	l.logger.Println(string(jsonData))
 }
