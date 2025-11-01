@@ -3,16 +3,32 @@ package logger
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"time"
 )
 
-// Logger struct
+// Abstracts functions for enabling mock
+type Logger interface {
+	Info(msg string, fields map[string]interface{})
+	Error(msg string, fields map[string]interface{})
+	Warn(msg string, fields map[string]interface{})
+	Debug(msg string, fields map[string]interface{})
+}
+
+// New JSON Logger struct
 type JSONLogger struct {
 	middleware string
 	hostname   string
 	logger     *log.Logger
+}
+
+// Configuration exposed for new JSON Logger
+type Config struct {
+	Middleware string
+	Output     io.Writer
+	Hostname   string
 }
 
 // Logger staple fields
@@ -26,16 +42,20 @@ type LogEntry struct {
 }
 
 // Initialize the logger
-func NewJSONLogger(middlewareName string) *JSONLogger {
+func NewJSONLogger(config Config) *JSONLogger {
+	if config.Output == nil {
+		config.Output = os.Stdout
+	}
+
 	hostname, err := os.Hostname()
 	if err != nil {
-		hostname = middlewareName
+		hostname = config.Middleware
 	}
 
 	return &JSONLogger{
-		middleware: middlewareName,
+		middleware: config.Middleware,
 		hostname:   hostname,
-		logger:     log.New(os.Stdout, "", 0), // no prefix, we’ll format ourselves
+		logger:     log.New(config.Output, "", 0),
 	}
 }
 
@@ -72,36 +92,18 @@ func (l *JSONLogger) logWithFields(level, msg string, fields map[string]interfac
 }
 
 // Helper methods for each log level
-func (l *JSONLogger) Info(msg string) {
-	l.logWithFields("INFO", msg, map[string]interface{}{})
-
-}
-
-func (l *JSONLogger) InfoWithFields(msg string, fields map[string]interface{}) {
+func (l *JSONLogger) Info(msg string, fields map[string]interface{}) {
 	l.logWithFields("INFO", msg, fields)
-
 }
 
-func (l *JSONLogger) Error(msg string) {
-	l.logWithFields("ERROR", msg, map[string]interface{}{})
-}
-
-func (l *JSONLogger) ErrorWithFields(msg string, fields map[string]interface{}) {
+func (l *JSONLogger) Error(msg string, fields map[string]interface{}) {
 	l.logWithFields("ERROR", msg, fields)
 }
 
-func (l *JSONLogger) Debug(msg string) {
-	l.logWithFields("DEBUG", msg, map[string]interface{}{})
-}
-
-func (l *JSONLogger) DebugWithFields(msg string, fields map[string]interface{}) {
+func (l *JSONLogger) Debug(msg string, fields map[string]interface{}) {
 	l.logWithFields("DEBUG", msg, fields)
 }
 
-func (l *JSONLogger) Warn(msg string) {
-	l.logWithFields("WARNING", msg, map[string]interface{}{})
-}
-
-func (l *JSONLogger) WarnWithFields(msg string, fields map[string]interface{}) {
+func (l *JSONLogger) Warn(msg string, fields map[string]interface{}) {
 	l.logWithFields("WARNING", msg, fields)
 }
