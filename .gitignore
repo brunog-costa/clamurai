@@ -30,3 +30,8 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Workflow
+**TODO.md**
+**coverage.out**
+**coverage.html**

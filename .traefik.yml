@@ -1,0 +1,14 @@
+displayName: Clamurai
+type: middleware
+iconPath: .assets/clamurai.png
+
+import: github.com/brunog-costa/clamurai
+
+summary: Real-time malware scanning middleware for Traefik using ClamAV to inspect request bodies before they reach your backend
+
+testData:
+  Config:
+    clamdAddress: "localhost:3310"
+    clamavReadTimeout: 3600
+    clamavConnectionTimeout: 90
+    alertMode: false
