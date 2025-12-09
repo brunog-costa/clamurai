@@ -36,7 +36,7 @@ func createScanResult(status string) []cli.ScanResult {
 	case "clean":
 		return []cli.ScanResult{
 			{
-				Status: "CLEAN",
+				Status: "OK",
 				Virus:  "",
 			},
 		}
@@ -60,11 +60,14 @@ func createScanResult(status string) []cli.ScanResult {
 
 func createTestInspector(client ClamClient) *Inspector {
 
-	log := logger.NewJSONLogger(logger.Config{
+	log, err := logger.New(logger.Config{
 		Middleware: "test-inspector",
-		Output:     io.MultiWriter(),
+		Output:     io.Discard,
 		Hostname:   "test-host",
 	})
+	if err != nil {
+		panic(err) // This should not happen in tests
+	}
 
 	return &Inspector{
 		client: client,
@@ -80,9 +83,10 @@ func TestNew(t *testing.T) {
 		connectionTimeout := uint64(90)
 
 		// Act
-		inspector := New(clamAddress, readTimeout, connectionTimeout)
+		inspector, err := New(clamAddress, readTimeout, connectionTimeout)
 
 		// Assert
+		assert.NoError(t, err, "Should not return error")
 		assert.NotNil(t, inspector, "Inspector should not be nil")
 		assert.NotNil(t, inspector.client, "Client should not be nil")
 		assert.NotNil(t, inspector.logger, "Logger should not be nil")
@@ -125,11 +129,11 @@ func TestInspectBody(t *testing.T) {
 			if !tc.expectedOutput {
 				mockClient.On("Instream", []byte(tc.body)).Return(createScanResult(tc.body), tc.expectedError).Times(3)
 			} else {
-				mockClient.On("Instream", []byte(tc.body)).Return(createScanResult(tc.body), nil).Times(3)
+				mockClient.On("Instream", []byte(tc.body)).Return(createScanResult(tc.body), nil).Once()
 			}
 
 			// Act
-			output, err := inspector.InspectBody([]byte(tc.body))
+			output, _, err := inspector.InspectBody([]byte(tc.body))
 
 			// Assert
 			if err != nil {

@@ -1,14 +1,15 @@
 package clamurai
 
 import (
+	"bytes"
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"os"
-	"regexp"
+	"time"
 
 	"github.com/brunog-costa/clamurai/internal/inspector"
+	"github.com/brunog-costa/clamurai/pkg/hash"
 	"github.com/brunog-costa/clamurai/pkg/logger"
 )
 
@@ -47,47 +48,29 @@ type Clamurai struct {
 	logging   *logger.JSONLogger
 }
 
-// Validates midleware configuration before starts
-func validateConfig(config *Config) error {
-	// Check if clamAddress is valid dns or ipv4 - tks leetcode for this one
-	octectsPattern := `([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])`
-	domainPattern := `^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`
-	v4 := regexp.MustCompile("^" + octectsPattern + `(\.` + octectsPattern + `){3}$`)
-	dns := regexp.MustCompile(domainPattern)
-	// Gotta find a way of negatting those
-	if v4.Match([]byte(config.ClamdAddress)) || dns.Match([]byte(config.ClamdAddress)) {
-		return errors.New("invalid clam address")
-	}
-
-	// Check if connection timeout and read timeout are valid values
-	if config.ClamavConnectionTimeout <= 3000 || config.ClamavReadTimeout <= 3000 {
-		return errors.New("invalid timeout configuration detected, please provide more tolerant configurations")
-	}
-	return nil
-}
-
 // Sets up the middleware plugin for further usage
 func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
+	// This call is potentially fucking up the script
 	hostname, _ := os.Hostname()
 
 	// Initialize logger
-	logging := logger.NewJSONLogger(logger.Config{
+	logging, err := logger.New(logger.Config{
 		Middleware: "clamurai",
-		Output:     io.MultiWriter(),
+		Output:     os.Stdout,
 		Hostname:   hostname,
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	logging.Info("Initializing clam client", logger.Fields("clamAddress", config.ClamdAddress))
 
-	// Checks input at midleware initialization
-	err := validateConfig(config)
-	if err != nil {
-		logging.Error("Detected bad configurations in clamurai config", logger.Fields("Error", err))
-		panic("Please validate dynamic configurations file and try again")
-	}
-
 	// Initialize inspector
-	inspector := inspector.New(config.ClamdAddress, config.ClamavConnectionTimeout, config.ClamavReadTimeout)
+	inspector, err := inspector.New(config.ClamdAddress, config.ClamavConnectionTimeout, config.ClamavReadTimeout)
+	if err != nil {
+		logging.Error("Failed to initialize inspector", logger.Fields("Error", err))
+		return nil, err
+	}
 
 	// Return configured parameters
 	return &Clamurai{
@@ -99,28 +82,77 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 	}, nil
 }
 
+// ProcessingResult holds results from parallel processing
+type ProcessingResult struct {
+	Clean     bool
+	Signature string
+	Hash      string
+	Error     error
+}
+
+// processSequentially handles AV scanning and hashing sequentially
+func (c *Clamurai) processSequentially(body []byte) ProcessingResult {
+	// AV scanning
+	c.logging.Info("Starting inspection", nil)
+	clean, signature, err := c.inspector.InspectBody(body)
+	if err != nil {
+		c.logging.Error("Failed inspection", nil)
+		return ProcessingResult{Error: err}
+	}
+	c.logging.Info("Finished inspection without errors", nil)
+
+	// Hashing
+	c.logging.Info("Starting hashsum", nil)
+	hashSum := hash.HashSum("sha256", body)
+	c.logging.Info("Finished hashsum", nil)
+
+	return ProcessingResult{
+		Clean:     clean,
+		Signature: signature,
+		Hash:      hashSum,
+		Error:     nil,
+	}
+}
+
 // Intercepting the requests and processing them before sending to next middleware or upstream
 func (c *Clamurai) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-
 	c.logging.Info("Building byte array from request body", nil)
 
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
-		// This will exit if there's an error
 		c.logging.Error("Pre-scan failed", logger.Fields("Error", err))
 		http.Error(rw, "Pre-scan failed, could not process body", http.StatusInternalServerError)
+		return
+	}
+	req.Body.Close()
+
+	// Restore request body for upstream
+	req.Body = io.NopCloser(bytes.NewReader(body))
+	req.ContentLength = int64(len(body))
+
+	scanStart := time.Now()
+	result := c.processSequentially(body)
+	scanDuration := time.Since(scanStart)
+
+	if result.Error != nil {
+		c.logging.Error("Processing failed", logger.Fields("Error", result.Error, "Duration", scanDuration.Seconds()))
+		http.Error(rw, "Scan failed", http.StatusInternalServerError)
+		return
 	}
 
-	// Split processing into two parallel  stages:
-	// 1 - thread inspects body
-	// 2 - if no shasum is found on headers, perform hashsum
-	clean, err := c.inspector.InspectBody(body)
-	if err != nil {
-		c.logging.Error("Inspector failed to verify body with", logger.Fields("Error", err))
+	c.logging.Info("Processing completed", logger.Fields(
+		"Clean", result.Clean,
+		"Hash", result.Hash,
+		"Duration", scanDuration.Seconds(),
+	))
+
+	if !result.Clean {
+		c.logging.Warn("Malware detected", logger.Fields("Signature", result.Signature))
+		if !c.alertMode {
+			http.Error(rw, "Malware detected", http.StatusForbidden)
+			return
+		}
 	}
 
-	// If its all cool, log the result and fwd the request
-	if clean || c.alertMode {
-		c.next.ServeHTTP(rw, req)
-	}
+	c.next.ServeHTTP(rw, req)
 }

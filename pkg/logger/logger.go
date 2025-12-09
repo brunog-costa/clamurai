@@ -41,18 +41,25 @@ type LogEntry struct {
 }
 
 // Initialize the logger
-func NewJSONLogger(config Config) *JSONLogger {
+func New(config Config) (*JSONLogger, error) {
 	if config.Output == nil {
 		config.Output = os.Stdout
 	}
 
-	hostname, _ := os.Hostname()
+	hostname := config.Hostname
+	if hostname == "" {
+		var err error
+		hostname, err = os.Hostname()
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	return &JSONLogger{
 		middleware: config.Middleware,
 		hostname:   hostname,
 		logger:     log.New(config.Output, "", 0),
-	}
+	}, nil
 }
 
 func Fields(kv ...interface{}) map[string]interface{} {
@@ -78,7 +85,12 @@ func (l *JSONLogger) logWithFields(level, msg string, fields map[string]interfac
 		Fields:     fields,
 	}
 
-	jsonData, _ := json.Marshal(entry)
+	jsonData, err := json.Marshal(entry)
+	if err != nil {
+		// Fallback to simple text logging if JSON marshaling fails
+		l.logger.Printf("[%s] %s: %s (JSON marshal error: %v)", level, l.middleware, msg, err)
+		return
+	}
 
 	l.logger.Println(string(jsonData))
 }

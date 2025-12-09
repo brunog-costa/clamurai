@@ -1,62 +1,139 @@
-# Clamurai Traefik Plugin 
+# Clamurai Traefik Plugin
 
 Wake up, clamurai...<br>
     &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;We have some malware to burn.
 
-## The Project
+## Overview
 
-Clamurai is a middleware built for providing inline anti-malware features into a vast range of solutions such as object storage (S3 or Blob for instance) and MFT solutions. 
+Clamurai is a Traefik middleware plugin that provides real-time malware scanning for HTTP request bodies using ClamAV. Unlike traditional async scanning solutions (GuardDuty Malware Protection, Microsoft Defender for Storage), Clamurai inspects files in-flight, blocking malicious content before it reaches your backend infrastructure.
 
-The inspiration from the project comes from tools such as GuardDuty Malware Protection and Microsoft Defender for Storage, which rely on receiving an object before inspecting it(async with queuing), forcing workflows to use batch format while inspecting files - with clamurai, we are able to stop malicious input before it touches our environment. 
+**Key Benefits:**
+- 🛡️ Inline protection - scan before storage
+- ⚡ Real-time blocking of malicious uploads
+- 🔧 Easy integration with existing Traefik deployments
+- 📊 Structured JSON logging with scan results and file hashes 
 
-### Traefik Configuration  
+## Configuration
 
-| Option              | Type   | Description                              | Default            |
-| ------------------- | ------ | ---------------------------------------- | ------------------ |
-| `clamdAddress`         | string | Host\:port of the ClamAV daemon (clamd)  | `"localhost:3310"` |
-| `alertMode` | bool | When set to `true` this feature will not generate blocks on up/downstream traffic, only log events       | `false`          |
-| `clamdReadTimeout`       | int | Ammount of time in seconds for the client to wait for scan on remove clamd                | `90`             |
-| `clamavConnectionTimeout`          | int | Ammount of time in seconds for the client to attempt closing connection with remote clamd  | `90`           |
+### Plugin Options
+
+| Option                      | Type   | Description                                                                 | Default            |
+| --------------------------- | ------ | --------------------------------------------------------------------------- | ------------------ |
+| `clamdAddress`              | string | Host:port of the ClamAV daemon (clamd)                                      | `"localhost:3310"` |
+| `clamavReadTimeout`         | uint64 | Timeout in seconds for waiting on ClamAV scan results                       | `3600`             |
+| `clamavConnectionTimeout`   | uint64 | Timeout in seconds for establishing connection with ClamAV daemon           | `90`               |
+| `alertMode`                 | bool   | When `true`, logs threats without blocking requests (monitoring mode)       | `true`             |
 
 
-## Usage
+## Installation
 
-In this section there are a few use cases where implementing the clamurai midleware as a standalone service might come in usefull.
+1. Add the plugin to your Traefik static configuration:
 
-### Pre-requisites 
+```yaml
+experimental:
+  plugins:
+    clamurai:
+      moduleName: github.com/brunog-costa/clamurai
+      version: v0.1.0  # Use latest version
+```
 
-In order to follow or implement the aftermentioned use cases, it's important that you consider provision: 
+2. Deploy a ClamAV daemon (clamd) accessible to your Traefik instance
 
-* Kubernetes or docker cluster
-* Network access or permissions into desired environments such as a cloud providers or on-premises infrastructure
-* A pot filled with fresh brewed coffee 
+3. Configure the middleware in your dynamic configuration (see examples below)
 
-### Protecting file uploads in updog instance
-TBD 
+## Usage Examples
 
-### Protecting Apache Airavata-mft
-TBD 
+### Prerequisites
 
-### Protecting file uploads in S3 pre-signed urls 
-TBD
+- Traefik instance with the clamurai plugin installed
+- ClamAV daemon (clamd) running and accessible
+- Basic knowledge of Traefik dynamic configuration
 
-### Protecting file uploads in azure with Blob SAS tokens 
-TBD
+### Protecting S3 Uploads
 
-## 🧱 Roadmap
+Scan file uploads before they reach your S3 bucket:
 
-* Implement tests and documentations for the code 
-	* Document use cases
-* Improve detections and clamav customization 
-	* Custom clam signature lib 
-	* Create flag for alert and block mode 
-* Tackle logging and outputs 
-	* Improve logger pkg
-	* Check if clamav logs can be displayed as json messing with the config file 
-* Test the package   
-	* Create unit tests for pkgs 
-	* Create a simple application using javascript for testing the solution 
+```yaml
+http:
+  routers:
+    s3-upload:
+      rule: "PathPrefix(`/`) && Method(`PUT`)"
+      service: s3-backend
+      entryPoints:
+        - web
+      middlewares:
+        - clamurai-scan
+    
+    s3-other:
+      rule: "PathPrefix(`/`)"
+      service: s3-backend
+      entryPoints:
+        - web
+
+  services:
+    s3-backend:
+      loadBalancer:
+        servers:
+          - url: "https://s3.amazonaws.com"
+        
+  middlewares:
+    clamurai-scan:
+      plugin:
+        clamurai:
+          clamdAddress: "localhost:3310"
+          clamavReadTimeout: 3600
+          clamavConnectionTimeout: 90
+          alertMode: false  # Block malicious uploads
+```
+
+### Monitoring Mode
+
+Log threats without blocking (useful for testing):
+
+```yaml
+middlewares:
+  clamurai-monitor:
+    plugin:
+      clamurai:
+        clamdAddress: "clamav-service:3310"
+        clamavReadTimeout: 3600
+        clamavConnectionTimeout: 90
+        alertMode: true  # Log only, don't block
+```
+
+## Features
+
+- ✅ Real-time malware scanning using ClamAV
+- ✅ SHA-256 hash calculation for all scanned files
+- ✅ Structured JSON logging with scan results
+- ✅ Alert mode for monitoring without blocking
+- ✅ Configurable timeouts for scan operations
+- ✅ Request body restoration for upstream services
+
+## Roadmap
+
+- [ ] **Extended Use Cases**
+  - Azure Blob Storage examples
+  - Google Cloud Storage examples
+  - IaC templates (Terraform, CloudFormation)
+  - Performance testing scripts
+
+- [ ] **Enhanced Configuration**
+  - Configurable logging destinations (file, stdout, remote endpoint)
+  - Custom response messages
+  - Whitelist/blacklist by file type or size
+
+- [ ] **ClamAV Management**
+  - Health check endpoints
+  - Signature update monitoring
+  - Connection pool management
+
+- [ ] **Advanced Security**
+  - YARA rules integration
+  - Custom signature support
+  - Multi-engine scanning support 
+
 
 ## 🧠 Want to contribute?
 
-PRs and issues are always welcome, also, make sure to check the roadmap section in this file. 
+PRs and issues are always welcome, also, make sure to check the roadmap section above. 

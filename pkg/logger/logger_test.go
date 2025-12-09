@@ -69,7 +69,10 @@ func TestNewJSONLogger(t *testing.T) {
 	// Runs each test case against defined parameters
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger := NewJSONLogger(tt.config)
+			logger, err := New(tt.config)
+			if err != nil {
+				t.Fatalf("Failed to create logger: %v", err)
+			}
 
 			if logger.middleware != tt.wantFields["middleware"] {
 				t.Errorf("Expected value %s for middleware, got %s", tt.wantFields, logger.middleware)
@@ -128,11 +131,14 @@ func TestLogLevels(t *testing.T) {
 	timeFunction := time.Now().Format(time.RFC3339)
 	output := newTestOutput()
 
-	logger := NewJSONLogger(Config{
+	logger, err := New(Config{
 		Middleware: middleware,
 		Hostname:   hostname,
 		Output:     output,
 	})
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
 
 	tests := []struct {
 		name     string
@@ -210,5 +216,116 @@ func TestLogLevels(t *testing.T) {
 				t.Errorf("Expected timestamp %s, got %s", tt.expected.Timestamp, entry.Timestamp)
 			}
 		})
+	}
+}
+func TestNewJSONLoggerErrorHandling(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      Config
+		expectError bool
+	}{
+		{
+			name: "valid config with custom hostname",
+			config: Config{
+				Middleware: "test",
+				Hostname:   "custom-host",
+				Output:     &bytes.Buffer{},
+			},
+			expectError: false,
+		},
+		{
+			name: "valid config without hostname",
+			config: Config{
+				Middleware: "test",
+				Output:     &bytes.Buffer{},
+			},
+			expectError: false,
+		},
+		{
+			name: "nil output defaults to stdout",
+			config: Config{
+				Middleware: "test",
+				Hostname:   "test-host",
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, err := New(tt.config)
+			
+			if tt.expectError && err == nil {
+				t.Error("Expected error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+			if !tt.expectError && logger == nil {
+				t.Error("Expected logger but got nil")
+			}
+		})
+	}
+}
+
+func TestLogWithFieldsErrorHandling(t *testing.T) {
+	output := newTestOutput()
+	logger, err := New(Config{
+		Middleware: "test",
+		Hostname:   "test-host",
+		Output:     output,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
+
+	// Test with fields that might cause JSON marshaling issues
+	problematicFields := map[string]interface{}{
+		"valid_field": "valid_value",
+		"func_field":  func() {}, // Functions can't be marshaled to JSON
+	}
+
+	logger.Info("test message", problematicFields)
+	
+	lines := output.Lines()
+	if len(lines) == 0 {
+		t.Fatal("Expected at least one log line")
+	}
+
+	// Should fallback to simple text logging when JSON marshaling fails
+	if !strings.Contains(lines[0], "JSON marshal error") {
+		// If JSON marshaling succeeded, verify it's valid JSON
+		var entry LogEntry
+		if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+			t.Errorf("Expected valid JSON or fallback message, got: %s", lines[0])
+		}
+	}
+}
+
+func TestLoggerWithNilFields(t *testing.T) {
+	output := newTestOutput()
+	logger, err := New(Config{
+		Middleware: "test",
+		Hostname:   "test-host",
+		Output:     output,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
+
+	logger.Info("test message", nil)
+	
+	lines := output.Lines()
+	if len(lines) != 1 {
+		t.Fatalf("Expected 1 log line, got %d", len(lines))
+	}
+
+	var entry LogEntry
+	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+		t.Fatalf("Failed to unmarshal log entry: %v", err)
+	}
+
+	if entry.Fields != nil {
+		t.Errorf("Expected nil fields, got %v", entry.Fields)
 	}
 }
